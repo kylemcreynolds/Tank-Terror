@@ -147,6 +147,7 @@ def main():
                 running = False
             elif event.type == pygame.KEYDOWN and not game_over:
                 if event.key == pygame.K_SPACE:
+                    # fire slower player bullet (default owner set by Tank.fire)
                     player_bullets.append(player.fire())
 
         if not game_over:
@@ -236,16 +237,31 @@ def main():
                 if b:
                     enemy_bullets.append(b)
 
-            # update bullets
+            # update bullets (player)
             for b in player_bullets[:]:
-                b.update()
-                if b.off_screen():
-                    player_bullets.remove(b)
+                b.update(walls)
+                # expire by lifetime or leave screen
+                if b.expired() or b.off_screen():
+                    try:
+                        player_bullets.remove(b)
+                    except ValueError:
+                        pass
                     continue
-                # bullet hits wall
-                if any(b.collides_with_rect(w) for w in walls):
-                    player_bullets.remove(b)
+
+                # friendly-fire: player can be hit by their own bullets
+                if b.owner == 'player' and b.collides_with_rect(player.get_rect()):
+                    # damage player
+                    try:
+                        player_bullets.remove(b)
+                    except ValueError:
+                        pass
+                    lives -= 1
+                    player.x, player.y = start_pos
+                    player.angle = 0
+                    if lives <= 0:
+                        game_over = True
                     continue
+
                 # hit enemy
                 hit = None
                 for e in enemies:
@@ -261,16 +277,19 @@ def main():
                         player_bullets.remove(b)
 
             for b in enemy_bullets[:]:
-                b.update()
-                if b.off_screen():
-                    enemy_bullets.remove(b)
-                    continue
-                if any(b.collides_with_rect(w) for w in walls):
-                    enemy_bullets.remove(b)
+                b.update(walls)
+                if b.expired() or b.off_screen():
+                    try:
+                        enemy_bullets.remove(b)
+                    except ValueError:
+                        pass
                     continue
                 # hit player
                 if b.collides_with_rect(player.get_rect()):
-                    enemy_bullets.remove(b)
+                    try:
+                        enemy_bullets.remove(b)
+                    except ValueError:
+                        pass
                     lives -= 1
                     # respawn player at start
                     player.x, player.y = start_pos

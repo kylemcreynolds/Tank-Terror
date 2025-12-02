@@ -24,3 +24,6 @@ PLAYER_LIVES = 3
 
 # Game progression
 MAX_LEVELS = 5  # total number of levels (0..MAX_LEVELS-1)
+
+# Bullet settings
+BULLET_LIFETIME = 3  # seconds bullets persist (can bounce during this time)
