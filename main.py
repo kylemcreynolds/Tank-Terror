@@ -7,6 +7,7 @@ screen = pygame.display.set_mode((settings.WIDTH, settings.HEIGHT))
 clock = pygame.time.Clock()
 
 player = tank.Tank(settings.WIDTH // 2, settings.HEIGHT // 2, (0, 255, 0))
+bullets = []
 
 running = True
 while running:
@@ -17,15 +18,23 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE:
+                bullets.append(player.fire())
 
     player.update(keys)
 
     screen.fill((20, 20, 20))
     player.draw(screen)
 
+    # Update and draw bullets
+    for b in bullets[:]:
+        b.update()
+        if b.off_screen():
+            bullets.remove(b)
+        else:
+            b.draw(screen)
+
     pygame.display.flip()
 
 pygame.quit()
-#hi how are you
-
-hi eedbhjeh
