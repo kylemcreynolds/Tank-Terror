@@ -119,37 +119,76 @@ class EnemyTank(Tank):
         super().__init__(x, y, color)
         self.fire_cooldown = random.randint(0, settings.ENEMY_FIRE_COOLDOWN)
 
-    def update_ai(self, target, walls):
-        # Turn towards player
-        dx = target.x - self.x
-        dy = target.y - self.y
-        desired = math.degrees(math.atan2(dy, dx))
-        # Simple angle interpolation
-        diff = (desired - self.angle + 180) % 360 - 180
-        if diff > 0:
-            self.angle += min(diff, settings.ENEMY_ROTATION_SPEED)
+    def update_ai(self, target, walls, path=None):
+        """Update AI. If a path is provided (list of (x,y) pixel centers), follow it.
+        Returns a Bullet when firing, otherwise None.
+        """
+        # If we have a path, follow next waypoint
+        if path:
+            # ensure path contains pixel centers; follow first waypoint
+            wx, wy = path[0]
+            dx = wx - self.x
+            dy = wy - self.y
+            dist = math.hypot(dx, dy)
+            desired = math.degrees(math.atan2(dy, dx))
+
+            # rotate toward waypoint
+            diff = (desired - self.angle + 180) % 360 - 180
+            if diff > 0:
+                self.angle += min(diff, settings.ENEMY_ROTATION_SPEED)
+            else:
+                self.angle += max(diff, -settings.ENEMY_ROTATION_SPEED)
+
+            # move toward waypoint
+            if dist > 4:
+                rad = math.radians(self.angle)
+                dx_move = math.cos(rad) * settings.ENEMY_SPEED
+                dy_move = math.sin(rad) * settings.ENEMY_SPEED
+
+                # collision like player
+                new_x = self.x + dx_move
+                rect_x = self.get_rect(new_x, self.y)
+                coll_x = any(rect_x.colliderect(w) for w in walls)
+                if not coll_x:
+                    self.x = new_x
+
+                new_y = self.y + dy_move
+                rect_y = self.get_rect(self.x, new_y)
+                coll_y = any(rect_y.colliderect(w) for w in walls)
+                if not coll_y:
+                    self.y = new_y
+            else:
+                # reached waypoint; pop it from path (caller should do this)
+                pass
+
         else:
-            self.angle += max(diff, -settings.ENEMY_ROTATION_SPEED)
+            # fallback: aim directly at player (less effective in mazes)
+            dx = target.x - self.x
+            dy = target.y - self.y
+            desired = math.degrees(math.atan2(dy, dx))
+            diff = (desired - self.angle + 180) % 360 - 180
+            if diff > 0:
+                self.angle += min(diff, settings.ENEMY_ROTATION_SPEED)
+            else:
+                self.angle += max(diff, -settings.ENEMY_ROTATION_SPEED)
 
-        # Move forward a bit
-        rad = math.radians(self.angle)
-        dx_move = math.cos(rad) * settings.ENEMY_SPEED
-        dy_move = math.sin(rad) * settings.ENEMY_SPEED
+            rad = math.radians(self.angle)
+            dx_move = math.cos(rad) * settings.ENEMY_SPEED
+            dy_move = math.sin(rad) * settings.ENEMY_SPEED
 
-        # collision like player
-        new_x = self.x + dx_move
-        rect_x = self.get_rect(new_x, self.y)
-        coll_x = any(rect_x.colliderect(w) for w in walls)
-        if not coll_x:
-            self.x = new_x
+            new_x = self.x + dx_move
+            rect_x = self.get_rect(new_x, self.y)
+            coll_x = any(rect_x.colliderect(w) for w in walls)
+            if not coll_x:
+                self.x = new_x
 
-        new_y = self.y + dy_move
-        rect_y = self.get_rect(self.x, new_y)
-        coll_y = any(rect_y.colliderect(w) for w in walls)
-        if not coll_y:
-            self.y = new_y
+            new_y = self.y + dy_move
+            rect_y = self.get_rect(self.x, new_y)
+            coll_y = any(rect_y.colliderect(w) for w in walls)
+            if not coll_y:
+                self.y = new_y
 
-        # handle firing cooldown
+        # handle firing cooldown unchanged
         self.fire_cooldown -= 1
         if self.fire_cooldown <= 0:
             self.fire_cooldown = settings.ENEMY_FIRE_COOLDOWN

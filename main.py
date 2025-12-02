@@ -1,5 +1,6 @@
 import pygame
 import random
+import math
 import settings
 import tank
 import sys
@@ -67,7 +68,33 @@ def build_level(level_index):
 
     exit_rect = pygame.Rect(exit_cell[0] * settings.CELL_SIZE, exit_cell[1] * settings.CELL_SIZE, settings.CELL_SIZE, settings.CELL_SIZE)
     start_pos = (start[0] * settings.CELL_SIZE + settings.CELL_SIZE // 2, start[1] * settings.CELL_SIZE + settings.CELL_SIZE // 2)
-    return walls, start_pos, exit_rect
+
+    # Make early levels easier by removing some random walls (creating loops/openings)
+    # The higher the level_index, the fewer openings we remove (harder mazes).
+    max_removals = max((cols * rows) // 50 - level_index * 2, 0)
+    removed = 0
+    attempts = 0
+    while removed < max_removals and attempts < max_removals * 10 + 100:
+        attempts += 1
+        rx = random.randint(1, cols - 2)
+        ry = random.randint(1, rows - 2)
+        if grid[ry][rx] == 1:
+            # don't remove border walls
+            if (rx, ry) in (start, exit_cell):
+                continue
+            grid[ry][rx] = 0
+            # add rect to walls removal by rebuilding walls list later
+            removed += 1
+
+    # Rebuild wall rects based on potentially modified grid
+    walls = []
+    for y in range(rows):
+        for x in range(cols):
+            if grid[y][x] == 1:
+                rect = pygame.Rect(x * settings.CELL_SIZE, y * settings.CELL_SIZE, settings.CELL_SIZE, settings.CELL_SIZE)
+                walls.append(rect)
+
+    return walls, start_pos, exit_rect, grid
 
 
 def spawn_enemies(count, walls, start_pos, exit_rect):
@@ -99,8 +126,9 @@ def main():
 
     level = 0
     lives = settings.PLAYER_LIVES
+    won = False
 
-    walls, start_pos, exit_rect = build_level(level)
+    walls, start_pos, exit_rect, grid = build_level(level)
     player = tank.Tank(start_pos[0], start_pos[1], (0, 200, 0))
     player_bullets = []
     enemy_bullets = []
@@ -125,8 +153,86 @@ def main():
             player.update(keys, walls)
 
             # enemies update
+            # recompute path to player occasionally so enemies can navigate the maze
+            # create a grid-based A* and assign pixel-center waypoints
+            def cell_from_pos(px, py):
+                cx = int(px // settings.CELL_SIZE)
+                cy = int(py // settings.CELL_SIZE)
+                return max(0, min(cx, len(grid[0]) - 1)), max(0, min(cy, len(grid) - 1))
+
+            # A* pathfinder on grid (0 = passable, 1 = wall)
+            def astar(start_cell, goal_cell):
+                sx, sy = start_cell
+                gx, gy = goal_cell
+                if grid[sy][sx] == 1 or grid[gy][gx] == 1:
+                    return None
+                open_set = {start_cell}
+                came_from = {}
+                gscore = {start_cell: 0}
+                fscore = {start_cell: abs(gx - sx) + abs(gy - sy)}
+
+                import heapq
+                heap = [(fscore[start_cell], start_cell)]
+
+                while heap:
+                    _, current = heapq.heappop(heap)
+                    if current == goal_cell:
+                        # reconstruct path
+                        rev = []
+                        node = current
+                        while node in came_from:
+                            rev.append(node)
+                            node = came_from[node]
+                        rev.append(start_cell)
+                        rev.reverse()
+                        # convert cells to pixel centers
+                        path = [(c[0] * settings.CELL_SIZE + settings.CELL_SIZE // 2, c[1] * settings.CELL_SIZE + settings.CELL_SIZE // 2) for c in rev]
+                        return path
+
+                    cx, cy = current
+                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        nx, ny = cx + dx, cy + dy
+                        if not (0 <= nx < len(grid[0]) and 0 <= ny < len(grid)):
+                            continue
+                        if grid[ny][nx] == 1:
+                            continue
+                        neigh = (nx, ny)
+                        tentative = gscore[current] + 1
+                        if tentative < gscore.get(neigh, 1e9):
+                            came_from[neigh] = current
+                            gscore[neigh] = tentative
+                            fscore[neigh] = tentative + abs(gx - nx) + abs(gy - ny)
+                            heapq.heappush(heap, (fscore[neigh], neigh))
+                return None
+
+            # compute player cell once
+            player_cell = cell_from_pos(player.x, player.y)
+
             for e in enemies[:]:
-                b = e.update_ai(player, walls)
+                # recompute path every so often or if empty
+                if not hasattr(e, 'path') or e.path is None:
+                    e.path = None
+                    e._path_timer = 0
+                if not hasattr(e, '_path_timer'):
+                    e._path_timer = 0
+
+                # recompute path every N frames (lower for easier levels)
+                recompute_every = max(20 - level * 2, 8)
+                if e._path_timer <= 0 or not e.path:
+                    start_cell = cell_from_pos(e.x, e.y)
+                    p = astar(start_cell, player_cell)
+                    e.path = p
+                    e._path_timer = recompute_every
+
+                # if path exists and has waypoints, pop reached waypoints here so enemy.update_ai can aim for first waypoint
+                if e.path:
+                    # remove waypoints that are very close
+                    while e.path and math.hypot(e.path[0][0] - e.x, e.path[0][1] - e.y) < 6:
+                        e.path.pop(0)
+
+                # pass path to enemy AI
+                b = e.update_ai(player, walls, path=e.path)
+                e._path_timer -= 1
                 if b:
                     enemy_bullets.append(b)
 
@@ -174,13 +280,18 @@ def main():
 
             # check player reaching exit
             if player.get_rect().colliderect(exit_rect):
-                level += 1
-                walls, start_pos, exit_rect = build_level(level)
-                player.x, player.y = start_pos
-                player.angle = 0
-                enemies = spawn_enemies(settings.ENEMY_BASE_COUNT + level, walls, start_pos, exit_rect)
-                player_bullets = []
-                enemy_bullets = []
+                # reached final level?
+                if level + 1 >= settings.MAX_LEVELS:
+                    won = True
+                    game_over = True
+                else:
+                    level += 1
+                    walls, start_pos, exit_rect, grid = build_level(level)
+                    player.x, player.y = start_pos
+                    player.angle = 0
+                    enemies = spawn_enemies(settings.ENEMY_BASE_COUNT + level, walls, start_pos, exit_rect)
+                    player_bullets = []
+                    enemy_bullets = []
 
         # draw
         screen.fill((20, 20, 20))

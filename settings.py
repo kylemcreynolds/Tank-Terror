@@ -17,7 +17,10 @@ EXIT_COLOR = (50, 200, 50)
 ENEMY_SPEED = 2.0
 ENEMY_ROTATION_SPEED = 2.5
 ENEMY_FIRE_COOLDOWN = 90  # frames
-ENEMY_BASE_COUNT = 2
+ENEMY_BASE_COUNT = 1
 
 # Gameplay
 PLAYER_LIVES = 3
+
+# Game progression
+MAX_LEVELS = 5  # total number of levels (0..MAX_LEVELS-1)
