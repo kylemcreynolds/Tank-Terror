@@ -6,4 +6,18 @@ FPS = 60
 # Tank settings
 TANK_SPEED = 3
 ROTATION_SPEED = 3  # degrees
-TANK_SIZE = 40
+TANK_SIZE = 24
+
+# Maze / level settings
+CELL_SIZE = 30  # size of one maze cell in pixels
+WALL_COLOR = (100, 100, 100)
+EXIT_COLOR = (50, 200, 50)
+
+# Enemy settings
+ENEMY_SPEED = 2.0
+ENEMY_ROTATION_SPEED = 2.5
+ENEMY_FIRE_COOLDOWN = 90  # frames
+ENEMY_BASE_COUNT = 2
+
+# Gameplay
+PLAYER_LIVES = 3

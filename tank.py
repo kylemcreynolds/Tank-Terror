@@ -1,16 +1,26 @@
 import pygame
 import math
+import random
 import settings
+
 
 class Tank:
     def __init__(self, x, y, color):
-        self.x = x
-        self.y = y
+        self.x = float(x)
+        self.y = float(y)
         self.angle = 0
         self.color = color
-        self.barrel_length = 35
+        self.barrel_length = settings.TANK_SIZE
 
-    def update(self, keys):
+    def get_rect(self, x=None, y=None):
+        if x is None:
+            x = self.x
+        if y is None:
+            y = self.y
+        size = settings.TANK_SIZE
+        return pygame.Rect(int(x - size / 2), int(y - size / 2), size, size)
+
+    def update(self, keys, walls):
         # Rotate tank
         if keys[pygame.K_LEFT]:
             self.angle -= settings.ROTATION_SPEED
@@ -19,27 +29,37 @@ class Tank:
 
         rad = math.radians(self.angle)
 
+        dx = 0
+        dy = 0
         # Move forward
         if keys[pygame.K_UP]:
-            self.x += math.cos(rad) * settings.TANK_SPEED
-            self.y += math.sin(rad) * settings.TANK_SPEED
+            dx += math.cos(rad) * settings.TANK_SPEED
+            dy += math.sin(rad) * settings.TANK_SPEED
 
         # Move backward
         if keys[pygame.K_DOWN]:
-            self.x -= math.cos(rad) * settings.TANK_SPEED
-            self.y -= math.sin(rad) * settings.TANK_SPEED
+            dx -= math.cos(rad) * settings.TANK_SPEED
+            dy -= math.sin(rad) * settings.TANK_SPEED
+
+        # Attempt move in x then y to allow sliding along walls
+        new_x = self.x + dx
+        rect_x = self.get_rect(new_x, self.y)
+        coll_x = any(rect_x.colliderect(w) for w in walls)
+        if not coll_x and 0 < new_x < settings.WIDTH:
+            self.x = new_x
+
+        new_y = self.y + dy
+        rect_y = self.get_rect(self.x, new_y)
+        coll_y = any(rect_y.colliderect(w) for w in walls)
+        if not coll_y and 0 < new_y < settings.HEIGHT:
+            self.y = new_y
 
     def draw(self, screen):
         # Draw tank body
         pygame.draw.rect(
             screen,
             self.color,
-            pygame.Rect(
-                self.x - settings.TANK_SIZE / 2,
-                self.y - settings.TANK_SIZE / 2,
-                settings.TANK_SIZE,
-                settings.TANK_SIZE
-            )
+            self.get_rect()
         )
 
         # Draw barrel
@@ -51,17 +71,17 @@ class Tank:
         pygame.draw.line(
             screen,
             (255, 255, 0),
-            (self.x, self.y),
-            (end_x, end_y),
+            (int(self.x), int(self.y)),
+            (int(end_x), int(end_y)),
             6
         )
 
-    def fire(self):
+    def fire(self, speed=12):
         """Return a Bullet fired from the tank's barrel tip."""
         rad = math.radians(self.angle)
         end_x = self.x + math.cos(rad) * self.barrel_length
         end_y = self.y + math.sin(rad) * self.barrel_length
-        return Bullet(end_x, end_y, self.angle)
+        return Bullet(end_x, end_y, self.angle, speed=speed)
 
 
 class Bullet:
@@ -89,3 +109,49 @@ class Bullet:
             or self.y < -self.radius
             or self.y > settings.HEIGHT + self.radius
         )
+
+    def collides_with_rect(self, rect):
+        return rect.collidepoint(int(self.x), int(self.y))
+
+
+class EnemyTank(Tank):
+    def __init__(self, x, y, color=(200, 30, 30)):
+        super().__init__(x, y, color)
+        self.fire_cooldown = random.randint(0, settings.ENEMY_FIRE_COOLDOWN)
+
+    def update_ai(self, target, walls):
+        # Turn towards player
+        dx = target.x - self.x
+        dy = target.y - self.y
+        desired = math.degrees(math.atan2(dy, dx))
+        # Simple angle interpolation
+        diff = (desired - self.angle + 180) % 360 - 180
+        if diff > 0:
+            self.angle += min(diff, settings.ENEMY_ROTATION_SPEED)
+        else:
+            self.angle += max(diff, -settings.ENEMY_ROTATION_SPEED)
+
+        # Move forward a bit
+        rad = math.radians(self.angle)
+        dx_move = math.cos(rad) * settings.ENEMY_SPEED
+        dy_move = math.sin(rad) * settings.ENEMY_SPEED
+
+        # collision like player
+        new_x = self.x + dx_move
+        rect_x = self.get_rect(new_x, self.y)
+        coll_x = any(rect_x.colliderect(w) for w in walls)
+        if not coll_x:
+            self.x = new_x
+
+        new_y = self.y + dy_move
+        rect_y = self.get_rect(self.x, new_y)
+        coll_y = any(rect_y.colliderect(w) for w in walls)
+        if not coll_y:
+            self.y = new_y
+
+        # handle firing cooldown
+        self.fire_cooldown -= 1
+        if self.fire_cooldown <= 0:
+            self.fire_cooldown = settings.ENEMY_FIRE_COOLDOWN
+            return self.fire(speed=10)
+        return None
