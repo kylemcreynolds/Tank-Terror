@@ -101,6 +101,100 @@ def build_level(level_index):
     return walls, start_pos, exit_rect, grid, theme
 
 
+def cell_from_pos(grid, px, py):
+    """Convert pixel position to grid cell (clamped)."""
+    cx = int(px // settings.CELL_SIZE)
+    cy = int(py // settings.CELL_SIZE)
+    return max(0, min(cx, len(grid[0]) - 1)), max(0, min(cy, len(grid) - 1))
+
+
+def astar(grid, start_cell, goal_cell):
+    """Simple A* on the maze grid. Returns list of pixel centers or None."""
+    sx, sy = start_cell
+    gx, gy = goal_cell
+    if grid[sy][sx] == 1 or grid[gy][gx] == 1:
+        return None
+    import heapq
+    openh = [(abs(gx - sx) + abs(gy - sy), start_cell)]
+    came_from = {}
+    gscore = {start_cell: 0}
+    while openh:
+        _, current = heapq.heappop(openh)
+        if current == goal_cell:
+            # rebuild path
+            path = []
+            node = current
+            while node in came_from:
+                path.append(node)
+                node = came_from[node]
+            path.append(start_cell)
+            path.reverse()
+            return [(c[0] * settings.CELL_SIZE + settings.CELL_SIZE // 2, c[1] * settings.CELL_SIZE + settings.CELL_SIZE // 2) for c in path]
+        cx, cy = current
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = cx + dx, cy + dy
+            if not (0 <= nx < len(grid[0]) and 0 <= ny < len(grid)):
+                continue
+            if grid[ny][nx] == 1:
+                continue
+            neigh = (nx, ny)
+            tentative = gscore[current] + 1
+            if tentative < gscore.get(neigh, 1e9):
+                came_from[neigh] = current
+                gscore[neigh] = tentative
+                f = tentative + abs(gx - nx) + abs(gy - ny)
+                heapq.heappush(openh, (f, neigh))
+    return None
+
+
+def update_bullets(bullets, walls, enemies, player, start_pos, is_enemy=False):
+    """Update bullets, handle bouncing, expiration and hits.
+    is_enemy distinguishes enemy bullets (they only hit player) from player bullets (they hit enemies and can hit player).
+    """
+    for b in bullets[:]:
+        b.update(walls)
+        if b.expired() or b.off_screen():
+            try:
+                bullets.remove(b)
+            except ValueError:
+                pass
+            continue
+
+        if is_enemy:
+            # enemy bullets only hurt the player
+            if b.collides_with_rect(player.get_rect()):
+                try:
+                    bullets.remove(b)
+                except ValueError:
+                    pass
+                player.x, player.y = start_pos
+                player.angle = 0
+                return 'player_hit'
+        else:
+            # player bullets can hit player (friendly fire)
+            if b.owner == 'player' and b.collides_with_rect(player.get_rect()):
+                try:
+                    bullets.remove(b)
+                except ValueError:
+                    pass
+                player.x, player.y = start_pos
+                player.angle = 0
+                return 'player_hit'
+
+            # check enemies
+            for e in enemies[:]:
+                if b.collides_with_rect(e.get_rect()):
+                    try:
+                        enemies.remove(e)
+                    except ValueError:
+                        pass
+                    try:
+                        bullets.remove(b)
+                    except ValueError:
+                        pass
+                    break
+
+
 def spawn_enemies(count, walls, start_pos, exit_rect):
     enemies = []
     cols = settings.WIDTH // settings.CELL_SIZE
@@ -159,60 +253,9 @@ def main():
             player.update(keys, walls)
 
             # enemies update
-            # recompute path to player occasionally so enemies can navigate the maze
-            # create a grid-based A* and assign pixel-center waypoints
-            def cell_from_pos(px, py):
-                cx = int(px // settings.CELL_SIZE)
-                cy = int(py // settings.CELL_SIZE)
-                return max(0, min(cx, len(grid[0]) - 1)), max(0, min(cy, len(grid) - 1))
-
-            # A* pathfinder on grid (0 = passable, 1 = wall)
-            def astar(start_cell, goal_cell):
-                sx, sy = start_cell
-                gx, gy = goal_cell
-                if grid[sy][sx] == 1 or grid[gy][gx] == 1:
-                    return None
-                open_set = {start_cell}
-                came_from = {}
-                gscore = {start_cell: 0}
-                fscore = {start_cell: abs(gx - sx) + abs(gy - sy)}
-
-                import heapq
-                heap = [(fscore[start_cell], start_cell)]
-
-                while heap:
-                    _, current = heapq.heappop(heap)
-                    if current == goal_cell:
-                        # reconstruct path
-                        rev = []
-                        node = current
-                        while node in came_from:
-                            rev.append(node)
-                            node = came_from[node]
-                        rev.append(start_cell)
-                        rev.reverse()
-                        # convert cells to pixel centers
-                        path = [(c[0] * settings.CELL_SIZE + settings.CELL_SIZE // 2, c[1] * settings.CELL_SIZE + settings.CELL_SIZE // 2) for c in rev]
-                        return path
-
-                    cx, cy = current
-                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                        nx, ny = cx + dx, cy + dy
-                        if not (0 <= nx < len(grid[0]) and 0 <= ny < len(grid)):
-                            continue
-                        if grid[ny][nx] == 1:
-                            continue
-                        neigh = (nx, ny)
-                        tentative = gscore[current] + 1
-                        if tentative < gscore.get(neigh, 1e9):
-                            came_from[neigh] = current
-                            gscore[neigh] = tentative
-                            fscore[neigh] = tentative + abs(gx - nx) + abs(gy - ny)
-                            heapq.heappush(heap, (fscore[neigh], neigh))
-                return None
 
             # compute player cell once
-            player_cell = cell_from_pos(player.x, player.y)
+            player_cell = cell_from_pos(grid, player.x, player.y)
 
             for e in enemies[:]:
                 # recompute path every so often or if empty
@@ -225,8 +268,8 @@ def main():
                 # recompute path every N frames (lower for easier levels)
                 recompute_every = max(20 - level * 2, 8)
                 if e._path_timer <= 0 or not e.path:
-                    start_cell = cell_from_pos(e.x, e.y)
-                    p = astar(start_cell, player_cell)
+                    start_cell = cell_from_pos(grid, e.x, e.y)
+                    p = astar(grid, start_cell, player_cell)
                     e.path = p
                     e._path_timer = recompute_every
 
@@ -242,65 +285,18 @@ def main():
                 if b:
                     enemy_bullets.append(b)
 
-            # update bullets (player)
-            for b in player_bullets[:]:
-                b.update(walls)
-                # expire by lifetime or leave screen
-                if b.expired() or b.off_screen():
-                    try:
-                        player_bullets.remove(b)
-                    except ValueError:
-                        pass
-                    continue
+            # update bullets
+            res = update_bullets(player_bullets, walls, enemies, player, start_pos, is_enemy=False)
+            if res == 'player_hit':
+                lives -= 1
+                if lives <= 0:
+                    game_over = True
 
-                # friendly-fire: player can be hit by their own bullets
-                if b.owner == 'player' and b.collides_with_rect(player.get_rect()):
-                    # damage player
-                    try:
-                        player_bullets.remove(b)
-                    except ValueError:
-                        pass
-                    lives -= 1
-                    player.x, player.y = start_pos
-                    player.angle = 0
-                    if lives <= 0:
-                        game_over = True
-                    continue
-
-                # hit enemy
-                hit = None
-                for e in enemies:
-                    if b.collides_with_rect(e.get_rect()):
-                        hit = e
-                        break
-                if hit:
-                    try:
-                        enemies.remove(hit)
-                    except ValueError:
-                        pass
-                    if b in player_bullets:
-                        player_bullets.remove(b)
-
-            for b in enemy_bullets[:]:
-                b.update(walls)
-                if b.expired() or b.off_screen():
-                    try:
-                        enemy_bullets.remove(b)
-                    except ValueError:
-                        pass
-                    continue
-                # hit player
-                if b.collides_with_rect(player.get_rect()):
-                    try:
-                        enemy_bullets.remove(b)
-                    except ValueError:
-                        pass
-                    lives -= 1
-                    # respawn player at start
-                    player.x, player.y = start_pos
-                    player.angle = 0
-                    if lives <= 0:
-                        game_over = True
+            res = update_bullets(enemy_bullets, walls, enemies, player, start_pos, is_enemy=True)
+            if res == 'player_hit':
+                lives -= 1
+                if lives <= 0:
+                    game_over = True
 
             # check player reaching exit
             if player.get_rect().colliderect(exit_rect):
