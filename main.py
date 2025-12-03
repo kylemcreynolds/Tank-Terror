@@ -68,10 +68,15 @@ def build_level(level_index):
 
     exit_rect = pygame.Rect(exit_cell[0] * settings.CELL_SIZE, exit_cell[1] * settings.CELL_SIZE, settings.CELL_SIZE, settings.CELL_SIZE)
     start_pos = (start[0] * settings.CELL_SIZE + settings.CELL_SIZE // 2, start[1] * settings.CELL_SIZE + settings.CELL_SIZE // 2)
+    # Make early levels easier by removing some random walls (creating loops/openings)
+    # level_index is 1-based for players, use lvl0 (0-based) for scaling
+
+    # Treat incoming level_index as 1-based for player; convert to 0-based for internal scaling/themes
+    lvl0 = max(level_index - 1, 0)
 
     # Make early levels easier by removing some random walls (creating loops/openings)
-    # The higher the level_index, the fewer openings we remove (harder mazes).
-    max_removals = max((cols * rows) // 50 - level_index * 2, 0)
+    # lvl0 is 0-based for scaling
+    max_removals = max((cols * rows) // 50 - lvl0 * 2, 0)
     removed = 0
     attempts = 0
     while removed < max_removals and attempts < max_removals * 10 + 100:
@@ -94,8 +99,8 @@ def build_level(level_index):
                 rect = pygame.Rect(x * settings.CELL_SIZE, y * settings.CELL_SIZE, settings.CELL_SIZE, settings.CELL_SIZE)
                 walls.append(rect)
 
-    # Get theme for this level (cycle through themes if level_index exceeds theme list)
-    theme_idx = min(level_index, len(settings.LEVEL_THEMES) - 1)
+    # Get theme for this level (use first theme for level 1, etc.; clamp if out of range)
+    theme_idx = min(lvl0, len(settings.LEVEL_THEMES) - 1)
     theme = settings.LEVEL_THEMES[theme_idx]
 
     return walls, start_pos, exit_rect, grid, theme
@@ -222,7 +227,8 @@ def main():
     screen = pygame.display.set_mode((settings.WIDTH, settings.HEIGHT))
     clock = pygame.time.Clock()
 
-    level = 0
+    # Start at level 1 for players (levels 1..MAX_LEVELS)
+    level = 1
     lives = settings.PLAYER_LIVES
     won = False
 
@@ -300,8 +306,8 @@ def main():
 
             # check player reaching exit
             if player.get_rect().colliderect(exit_rect):
-                # reached final level?
-                if level + 1 >= settings.MAX_LEVELS:
+                # reached final level? (level is 1-based)
+                if level >= settings.MAX_LEVELS:
                     won = True
                     game_over = True
                 else:
