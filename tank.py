@@ -145,13 +145,16 @@ class Bullet:
                     if collided_y:
                         self.vy = -self.vy
 
-                    # move bullet slightly out of collision along the reflected vector so it doesn't re-collide repeatedly
-                    for _ in range(6):
+                    # revert to previous position and step out in reflected direction to prevent sticking
+                    self.x = prev_x
+                    self.y = prev_y
+                    # step out multiple times with reflected velocity to ensure clearance
+                    for _ in range(10):
+                        self.x += self.vx
+                        self.y += self.vy
                         br = pygame.Rect(int(self.x - self.radius), int(self.y - self.radius), self.radius * 2, self.radius * 2)
                         if not br.colliderect(w):
                             break
-                        self.x += self.vx * 0.2
-                        self.y += self.vy * 0.2
 
     def draw(self, screen):
         pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.radius)

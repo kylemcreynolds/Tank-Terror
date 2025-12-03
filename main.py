@@ -94,7 +94,11 @@ def build_level(level_index):
                 rect = pygame.Rect(x * settings.CELL_SIZE, y * settings.CELL_SIZE, settings.CELL_SIZE, settings.CELL_SIZE)
                 walls.append(rect)
 
-    return walls, start_pos, exit_rect, grid
+    # Get theme for this level (cycle through themes if level_index exceeds theme list)
+    theme_idx = min(level_index, len(settings.LEVEL_THEMES) - 1)
+    theme = settings.LEVEL_THEMES[theme_idx]
+
+    return walls, start_pos, exit_rect, grid, theme
 
 
 def spawn_enemies(count, walls, start_pos, exit_rect):
@@ -128,7 +132,8 @@ def main():
     lives = settings.PLAYER_LIVES
     won = False
 
-    walls, start_pos, exit_rect, grid = build_level(level)
+    walls, start_pos, exit_rect, grid, theme = build_level(level)
+    bg_color, wall_color, exit_color = theme
     player = tank.Tank(start_pos[0], start_pos[1], (0, 200, 0))
     player_bullets = []
     enemy_bullets = []
@@ -305,7 +310,8 @@ def main():
                     game_over = True
                 else:
                     level += 1
-                    walls, start_pos, exit_rect, grid = build_level(level)
+                    walls, start_pos, exit_rect, grid, theme = build_level(level)
+                    bg_color, wall_color, exit_color = theme
                     player.x, player.y = start_pos
                     player.angle = 0
                     enemies = spawn_enemies(settings.ENEMY_BASE_COUNT + level, walls, start_pos, exit_rect)
@@ -313,14 +319,14 @@ def main():
                     enemy_bullets = []
 
         # draw
-        screen.fill((20, 20, 20))
+        screen.fill(bg_color)
 
         # walls
         for w in walls:
-            pygame.draw.rect(screen, settings.WALL_COLOR, w)
+            pygame.draw.rect(screen, wall_color, w)
 
         # exit
-        pygame.draw.rect(screen, settings.EXIT_COLOR, exit_rect)
+        pygame.draw.rect(screen, exit_color, exit_rect)
 
         # draw entities
         player.draw(screen)
